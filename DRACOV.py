@@ -361,13 +361,13 @@ def main():
 
         st.info("""
 **Nota**: Estos porcentajes son aproximaciones hipotéticas. 
-La decisión real de usar anti-VEGF prequirúrgico (p. ej., ranibizumab, aflibercept o bevacizumab)
+La decisión real de usar anti-VEGF prequirúrgico (p. ej., ranibizumab, aflibercept, faricimab o bevacizumab)
 o PRP adicional debe basarse en protocolos específicos, disponibilidad de tiempo
 y valoración clínica integral.
 """)
 
     st.write("---")
-    st.subheader("Referencias (Evidencia de Alta Calidad)")
+    st.subheader("Referencias")
     st.markdown("""
 - **DRCR.net Protocol S**: *JAMA.* 2015;314(20):2137-2146  
 - **DRCR.net Protocol T**: *Ophthalmology.* 2015;122(10):2044-2052  
