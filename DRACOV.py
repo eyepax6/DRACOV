@@ -251,7 +251,16 @@ def recomendar_terapia_adicional(riesgo_sangrado: float) -> str:
 def main():
     st.title("DRACOV: Diabetic Retinopathy Advanced Calculator for Outcomes & Vision")
     st.caption("Prototipo de calculadora para estimar riesgos y pronósticos en retinopatía diabética basada en evidencia.")
-
+    st.markdown(
+    """
+    <div style="text-align: center; margin-top: -20px;">
+        <span style="font-size: 10px; color: grey;">
+            Creado por Luis Daniel García Arzate
+        </span>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
     st.write("""
 **DRACOV** integra:
 - Factores sistémicos (Duración DM, HbA1c, HTA, IR).
