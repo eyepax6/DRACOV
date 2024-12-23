@@ -260,7 +260,7 @@ def main():
     """,
     unsafe_allow_html=True
 )
-    st.caption("Prototipo de calculadora para estimar riesgos y pronósticos en retinopatía diabética basada en evidencia.")
+    st.caption("Prototipo de calculadora para estimar riesgos y pronósticos quirúrgicos en retinopatía diabética basada en evidencia.")
 
     st.write("""
 **DRACOV** integra:
