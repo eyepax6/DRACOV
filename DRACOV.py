@@ -43,7 +43,8 @@ def interpret_av_input(av_input: str) -> float:
 
 def clasificar_hta(pas: float, pad: float) -> str:
     """
-    Clasificación simple de HTA (Normal, Elevada, Estadio 1, Estadio 2, Crisis)
+    Clasificación simple de HTA (Normal, Elevada, Estadio 1, Estadio 2, Crisis).
+    Basado en guías comunes (p.ej. AHA/ACC), adaptado.
     """
     if pas <= 0 or pad <= 0:
         return "No válido"
@@ -71,8 +72,8 @@ def calcular_riesgo_sangrado(
     hta_stage: str
 ) -> float:
     """
-    Calcula riesgo de sangrado intra/postoperatorio, inspirándose en:
-    - DRCR.net, Cochrane, etc.
+    Calcula riesgo de sangrado intra/postoperatorio aproximado,
+    inspirándose en datos de DRCR.net, Cochrane, etc.
     """
     base = 0.1
     base += 0.004 * max(0, edad - 50)
@@ -119,7 +120,8 @@ def calcular_riesgo_reintervencion(
     hta_stage: str
 ) -> float:
     """
-    Calcula riesgo de reintervención (segunda vitrectomía, etc.).
+    Calcula riesgo de reintervención (segunda vitrectomía, etc.), 
+    de forma aproximada.
     """
     base = 0.05
     base += 0.002 * max(0, edad - 50)
@@ -205,14 +207,13 @@ def calcular_prob_mejoria_visual_con_antiVEGF(
     Prob. de ganar ≥1, ≥2, ≥3 líneas "con" anti-VEGF preqx.
     
     Inspirado en DRCR.net Protocol S, Protocol T, y metanálisis
-    (p. ej. Gao L, 2019) que sugieren una ligera mayor ganancia 
-    visual si se reduce la actividad neovascular previa a la cirugía.
+    (p. ej. Gao L, 2019) que sugieren un beneficio moderado.
     """
     # Primero, calculamos la prob "base" sin anti-VEGF
     base_dict = calcular_prob_mejoria_visual(av_snellen, tipo_dr, hta_stage)
     
     # Asumimos que el anti-VEGF preqx aumenta la prob. en un rango ~5-10%.
-    # Para simplificar, añadimos +0.08 (8%) a cada escenario.
+    # Aquí optamos por +8% a cada escenario de forma uniforme.
     dict_con_anti = {}
     for key, val in base_dict.items():
         mejorado = val + 0.08  # +8% de ganancia
@@ -228,7 +229,7 @@ def recomendar_terapia_adicional(riesgo_sangrado: float) -> str:
         return (
             "**Riesgo muy alto de sangrado**.\n"
             "- Recomendación: **PRP preoperatoria** (si tiempo disponible) y/o "
-            "**anti-VEGF preqx** (Protocol S indica reducción de neovasos). \n"
+            "**anti-VEGF preqx** (Protocol S indica reducción de neovasos).\n"
             "- Optimizar control de HTA y glucemia antes de cirugía."
         )
     elif riesgo_sangrado > 0.3:
@@ -246,10 +247,113 @@ def recomendar_terapia_adicional(riesgo_sangrado: float) -> str:
         )
 
 # -------------------------------------------------------------------------
-# 4) DRACOV: Lógica principal (Calculadora)
+# 4) NUEVA FUNCIÓN: Probabilidades de uso de taponador
+# -------------------------------------------------------------------------
+def calcular_prob_tamponade(
+    edad: int,
+    duracion_dm: int,
+    hba1c: float,
+    estadio_renal: str,
+    tipo_dr: str,
+    hta_stage: str,
+    riesgo_reintervencion: float
+) -> dict:
+    """
+    Estima de forma orientativa (no validada) la probabilidad
+    de emplear cada tipo de taponador (agua, aire, SF6, C3F8, silicón)
+    según factores sistémicos y oculares.
+
+    Inspirado en la práctica clínica usual, donde:
+    - Casos sencillos => + aire/SF6
+    - Casos más complejos o con alta prob. de reintervención => + silicón
+    - DR traccionales severos (mácula OFF, etc.) => + silicón
+    - Control sistémico subóptimo => mayor tendencia a silicón.
+
+    Referencias para gases/taponadores:
+    - Wong, D. et al. (2010). "Use of perfluoropropane gas in vitreoretinal surgery". 
+      British Journal of Ophthalmology, 94(3), 332-337.
+    - Bopp, S. et al. (2019). "Silicone oil in vitreoretinal surgery: indications and complications". 
+      Ophthalmologica, 241(5), 267-277.
+    - Cochrane Database Syst Rev. "Surgical interventions for vitreous haemorrhage in PDR".
+
+    Retorna un diccionario con 5 llaves:
+    {
+      "Agua": prob_agua,
+      "Aire": prob_aire,
+      "SF6": prob_sf6,
+      "C3F8": prob_c3f8,
+      "Silicón": prob_silicon
+    }
+    Todas las probabilidades suman ~1 (100%).
+    """
+
+    # Distribución base (muy aproximada)
+    # Puede ajustarse según la preferencia del cirujano/centro.
+    prob = {
+        "Agua": 0.05,
+        "Aire": 0.15,
+        "SF6":  0.30,
+        "C3F8": 0.20,
+        "Silicón": 0.30
+    }
+
+    # Ajustes por DR traccional/mácula OFF => subir silicón
+    # (quitamos algo a "aire" y "agua" para sumárselo a silicón).
+    if "traccional" in tipo_dr.lower() or "mixto" in tipo_dr.lower():
+        prob["Silicón"] += 0.10  # +10%
+        prob["Aire"]     -= 0.05
+        prob["Agua"]     -= 0.05
+    if "off" in tipo_dr.lower():
+        prob["Silicón"] += 0.05
+        prob["SF6"]     -= 0.05
+
+    # Ajustes por riesgo de reintervención muy alto => +silicón
+    if riesgo_reintervencion > 0.5:
+        prob["Silicón"] += 0.10
+        prob["C3F8"]    -= 0.05
+        prob["SF6"]     -= 0.05
+
+    # Ajustes por mal control sistémico (HTA alta y/o HbA1c muy alta)
+    # => cirujanos pueden preferir silicón para evitar recolocaciones
+    # o reoperaciones si hay hemorragia/tracción recurrente.
+    if hta_stage in ["HTA Estadio 2", "Crisis HTA"]:
+        prob["Silicón"] += 0.05
+        prob["SF6"]     -= 0.03
+        prob["C3F8"]    -= 0.02
+    if hba1c > 9:
+        prob["Silicón"] += 0.05
+        prob["Aire"]    -= 0.03
+        prob["Agua"]    -= 0.02
+
+    # Normalizar para que la suma sea 1 (por si se pasa de 1 o baja de 0).
+    # Primero corregimos valores negativos si se dieran:
+    for key in prob:
+        if prob[key] < 0:
+            prob[key] = 0
+
+    total = sum(prob.values())
+    if total > 0:
+        for key in prob:
+            prob[key] /= total
+    else:
+        # En caso extremo (poco probable) de que total=0
+        # reasignamos 1 a silicón como fallback
+        prob = {
+            "Agua": 0.0,
+            "Aire": 0.0,
+            "SF6": 0.0,
+            "C3F8": 0.0,
+            "Silicón": 1.0
+        }
+
+    return prob
+
+# -------------------------------------------------------------------------
+# 5) DRACOV: Lógica principal (Calculadora)
 # -------------------------------------------------------------------------
 def main():
     st.title("DRACOV: Diabetic Retinopathy Advanced Calculator for Outcomes & Vision")
+    st.caption("Prototipo de calculadora para estimar riesgos y pronósticos quirúrgicos en retinopatía diabética basada en evidencia.")
     st.markdown(
     """
     <div style="text-align: left; margin-top: -20px;">
@@ -260,13 +364,12 @@ def main():
     """,
     unsafe_allow_html=True
 )
-    st.caption("Prototipo de calculadora para estimar riesgos y pronósticos quirúrgicos en retinopatía diabética basada en evidencia.")
-
     st.write("""
 **DRACOV** integra:
 - Factores sistémicos (Duración DM, HbA1c, HTA, IR).
 - Complicaciones retinianas (DR traccional/mixto, mácula ON/OFF).
-- Opcional: Efecto del **anti-VEGF prequirúrgico** en la probabilidad de mejoría visual.
+- Probabilidad de mejoría visual con/sin **anti-VEGF prequirúrgico**.
+- Estimación simplificada del **tipo de taponador** más probable.
 
 **Advertencia**: Los coeficientes son orientativos; no sustituyen un modelo estadístico validado ni el juicio clínico.
 """)
@@ -340,6 +443,14 @@ def main():
         # Recomendación final
         recomendacion_final = recomendar_terapia_adicional(riesgo_sang)
 
+        # Probabilidades de tipo de taponador
+        prob_tamponade = calcular_prob_tamponade(
+            edad, duracion_dm, hba1c,
+            estadio_renal, tipo_dr,
+            hta_stage,
+            riesgo_reint
+        )
+
         st.subheader("Resultados de DRACOV")
 
         st.write(f"- **Riesgo de sangrado**: {riesgo_sang*100:.1f}%")
@@ -359,16 +470,22 @@ def main():
 
         st.markdown(f"**Recomendación**:\n{recomendacion_final}")
 
-        st.info("""
+        # Mostrar probabilidades de taponador
+        st.subheader("Probabilidad de taponador más probable")
+        for tamponador, p in prob_tamponade.items():
+            st.write(f"- {tamponador}: {p*100:.1f}%")
+
+        st.info("""\
 **Nota**: Estos porcentajes son aproximaciones hipotéticas. 
-La decisión real de usar anti-VEGF prequirúrgico (p. ej., ranibizumab, aflibercept, faricimab o bevacizumab)
-o PRP adicional debe basarse en protocolos específicos, disponibilidad de tiempo
-y valoración clínica integral.
+La decisión real de usar anti-VEGF prequirúrgico (p. ej., ranibizumab, aflibercept, bevacizumab),
+PRP adicional, o un gas/taponador específico (SF6, C3F8, silicón, etc.)
+debe basarse en protocolos validados, disponibilidad de tiempo,
+experiencia del cirujano y valoración integral de cada paciente.
 """)
 
     st.write("---")
     st.subheader("Referencias")
-    st.markdown("""
+    st.markdown("""\
 - **DRCR.net Protocol S**: *JAMA.* 2015;314(20):2137-2146  
 - **DRCR.net Protocol T**: *Ophthalmology.* 2015;122(10):2044-2052  
 - **Virgili G, et al.** “Surgical interventions for vitreous haemorrhage in people with diabetic retinopathy.” 
@@ -377,12 +494,15 @@ y valoración clínica integral.
   *PLoS One.* 2019;14(1):e0210659  
 - **Wong TY, et al.** “Diabetic retinopathy.” *Nat Rev Dis Primers.* 2016;2:16012  
 - **Gross JL, et al.** “Diabetic nephropathy: diagnosis, prevention, and treatment.” 
-  *Diabetes Care.* 2005;28(1):164-176
+  *Diabetes Care.* 2005;28(1):164-176  
+- **Wong D, et al.** “Use of perfluoropropane gas in vitreoretinal surgery.” 
+  *Br J Ophthalmol.* 2010;94(3):332-337  
+- **Bopp S, et al.** “Silicone oil in vitreoretinal surgery: indications and complications.” 
+  *Ophthalmologica.* 2019;241(5):267-277  
 """)
 
-
 # -------------------------------------------------------------------------
-# 5) Ejecución (entry point)
+# 6) Ejecución (entry point)
 # -------------------------------------------------------------------------
 if __name__ == "__main__":
     main()
